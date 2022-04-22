@@ -15,6 +15,29 @@ def from_string(board: str) -> npt.NDArray[int]:
     return np.array([int(i) for i in board], dtype=np.int).reshape((9, 9))
 
 
+def check_valid(board: npt.NDArray[int], check_complete: bool = False) -> bool:
+    for row in board:
+        row = np.array([i for i in row if i])
+        if row.size != np.unique(row).size:
+            return False
+        if check_complete and row.size != 9:
+            return False
+    for col in board.T:
+        col = np.array([i for i in col if i])
+        if col.size != np.unique(col).size:
+            return False
+        if check_complete and col.size != 9:
+            return False
+    for grid_row in range(3):
+        for grid_col in range(3):
+            grid = np.array([i for i in board[(3 * grid_row):(3 * (grid_row + 1)), (3 * grid_col):(3 * (grid_col + 1))].reshape((9,)) if i])
+            if grid.size != np.unique(grid).size:
+                return False
+            if check_complete and grid.size != 9:
+                return False
+    return True
+
+
 def solve(board: npt.NDArray[int]) -> Optional[npt.NDArray[int]]:
     """
     Solve the sudoku board using a rule-based approach and backtracking when necessary.
@@ -54,7 +77,7 @@ def solve(board: npt.NDArray[int]) -> Optional[npt.NDArray[int]]:
         return np.setdiff1d(np.arange(10), covered)
 
     # Given the data for a row, column, or grid, for each number not already appearing in that row / column / grid,
-    # determine the cells for which is can be a candidate.
+    # determine the cells for which it can be a candidate.
     # For the output, we get a map of lists of indexes where the number appears in the candidate lists.
     def find_cells(candidate_lists: npt.NDArray[npt.NDArray[int]], board_contents: npt.NDArray[int]) ->\
             Mapping[int, List[int]]:
@@ -86,6 +109,7 @@ def solve(board: npt.NDArray[int]) -> Optional[npt.NDArray[int]]:
     while prev_zeros:
         logging.info(f'*** Iter {it} ***')
         it += 1
+        logging.info(board_solved)
 
         # Calculate the candidates for each cell.
         # Ragged arrays are deprecated, but this will simplify things considerably by being able
@@ -107,62 +131,68 @@ def solve(board: npt.NDArray[int]) -> Optional[npt.NDArray[int]]:
         # x x . | . . . | . . .
         # . . . | x x . | . . x
         # . . . | . x x | x . .
-        for grid_row in range(3):
-            for grid_col in range(3):
-                for number in range(1, 10):
-                    # Get the possible cell locations of number in the given grid.
-                    # Note these are offsets.
-                    cells = [(r, c) for r in range(3) for c in range(3)
-                             if number in extract_grid_candidates(grid_row, grid_col)[r][c]]
-
-                    # Check to see if all the row_offsets are the same. Cannot use generators here.
-                    row_offsets = np.unique([r for r, _ in cells])
-                    if row_offsets.size == 1:
-                        # Eliminate from the other row_offsets in the other two grids in this grid_row.
-                        for other_grid_col in range(3):
-                            if other_grid_col == grid_col: continue
-                            for col_offset in range(3):
-                                row, col = grid_to_board(grid_row, grid_col, row_offsets[0], col_offset)
-                                board_candidates[row, col] = np.setdiff1d(board_candidates[row, col], number)
-
-                    # Check to see if all the col_offsets are the same. Cannot use generators here.
-                    col_offsets = np.unique([c for _, c in cells])
-                    if col_offsets.size == 1:
-                        # Eliminate from the other col_offsets in the other two grids in this grid_col.
-                        for other_grid_row in range(3):
-                            if other_grid_row == grid_row: continue
-                            for row_offset in range(3):
-                                row, col = grid_to_board(grid_row, grid_col, row_offset, col_offsets[0])
-                                board_candidates[row, col] = np.setdiff1d(board_candidates[row, col], number)
+        # for grid_row in range(3):
+        #     for grid_col in range(3):
+        #         for number in range(1, 10):
+        #             # Get the possible cell locations of number in the given grid.
+        #             # Note these are offsets.
+        #             cells = [(r, c) for r in range(3) for c in range(3)
+        #                      if number in extract_grid_candidates(grid_row, grid_col)[r][c]]
+        #
+        #             # Check to see if all the row_offsets are the same. Cannot use generators here.
+        #             row_offsets = np.unique([r for r, _ in cells])
+        #             if row_offsets.size == 1:
+        #                 # Eliminate from the other row_offsets in the other two grids in this grid_row.
+        #                 for other_grid_col in range(3):
+        #                     if other_grid_col == grid_col: continue
+        #                     for col_offset in range(3):
+        #                         row, col = grid_to_board(grid_row, grid_col, row_offsets[0], col_offset)
+        #                         board_candidates[row, col] = np.setdiff1d(board_candidates[row, col], number)
+        #
+        #             # Check to see if all the col_offsets are the same. Cannot use generators here.
+        #             col_offsets = np.unique([c for _, c in cells])
+        #             if col_offsets.size == 1:
+        #                 # Eliminate from the other col_offsets in the other two grids in this grid_col.
+        #                 for other_grid_row in range(3):
+        #                     if other_grid_row == grid_row: continue
+        #                     for row_offset in range(3):
+        #                         row, col = grid_to_board(grid_row, grid_col, row_offset, col_offsets[0])
+        #                         board_candidates[row, col] = np.setdiff1d(board_candidates[row, col], number)
 
         # *** BACKTRACKING ***
-        # First check to see if we've reached a dead end. If we have, we have to backtrack.
-        dead_end = False
-        for row, col in [(x, y) for x in range(9) for y in range(9)]:
-            if board_solved[row, col] == 0 and board_candidates[row][col].size == 0:
-                logging.info(f'Dead end found at ({row},{col}), candidates: {board_candidates[row][col]}')
-                logging.info(f'Board:\n{board_solved}')
-                dead_end = True
-                break
+        # First check to see if we've reached a dead end or in a bad state. If so, we have to backtrack.
+        valid = check_valid(board_solved)
+        if valid:
+            for row, col in [(x, y) for x in range(9) for y in range(9)]:
+                if board_solved[row, col] == 0 and board_candidates[row][col].size == 0:
+                    logging.info(f'Dead end found at ({row},{col}), candidates: {board_candidates[row][col]}')
+                    logging.info(f'Board:\n{board_solved}')
+                    valid = False
+                    break
 
         # Backtrack if we reached a dead end, and we can do so.
-        if dead_end:
-            # If there was no backtracking done at all, then we can't backtrack and the board is not solvable.
-            if not backtracking:
-                return None
+        if not valid:
+            while True:
+                # If there is no more backtracking to do, we cannot continue.
+                if not backtracking:
+                    return None
 
-            # Revert to the state at the time of the backtracking.
-            board_solved, row, col, cell_candidates, idx = backtracking.pop()
+                # Reload the previous state.
+                board_solved, row, col, cell_candidates, idx = backtracking.pop()
 
-            # If we have exhausted all possibilities in the backtracking, then the board is not solvable.
-            idx += 1
-            if idx == len(cell_candidates):
-                return None
+                # If we have exhausted all possibilities in this backtrack, then we have to backtrack further.
+                idx += 1
+                if idx == len(cell_candidates):
+                    continue
+
+                break
 
             # We can backtrack, so set the new state, and loop.
             logging.info(f'Setting ({row},{col}) to {cell_candidates[idx]} via backtracking')
             board_solved[row, col] = cell_candidates[idx]
+            logging.info(board_solved)
             backtracking.append((board_solved.copy(), row, col, cell_candidates, idx))
+            prev_zeros = 81 - np.count_nonzero(board_solved)
             continue
 
         # *** NUMBER CANDIDATES ***
@@ -211,16 +241,43 @@ def solve(board: npt.NDArray[int]) -> Optional[npt.NDArray[int]]:
         for number in range(1, 10):
             for row, number_cells in enumerate(number_row_candidates):
                 if number in number_cells and len(number_cells[number]) == 1:
+                    col = number_cells[number][0]
+                    logging.info(f'Setting ({row},{col}) to {number} via hidden singles row')
                     board_solved[row, number_cells[number][0]] = number
             for col, number_cells in enumerate(number_col_candidates):
                 if number in number_cells and len(number_cells[number]) == 1:
+                    row = number_cells[number][0]
+                    logging.info(f'Setting ({row},{col}) to {number} via hidden singles col')
                     board_solved[number_cells[number][0], col] = number
             for (grid_row, grid_col), cells in number_grid_candidates.items():
                 if number in cells and len(cells[number]) == 1:
                     row_offset, col_offset = cells[number][0]
                     row, col = grid_to_board(grid_row, grid_col, row_offset, col_offset)
-                    logging.info(f'Setting ({row},{col}) to {number} via hidden singles')
+                    logging.info(f'Setting ({row},{col}) to {number} via hidden singles grid')
                     board_solved[row, col] = number
+
+        if not check_valid(board_solved):
+            # We have to backtrack.
+            while True:
+                # If there is no more backtracking to do, we cannot continue.
+                if not backtracking:
+                    return None
+
+                # Reload the previous state.
+                board_solved, row, col, cell_candidates, idx = backtracking.pop()
+
+                # If we have exhausted all possibilities in this backtrack, then we have to backtrack further.
+                idx += 1
+                if idx == len(cell_candidates):
+                    continue
+                break
+            # We can backtrack, so set the new state, and loop.
+            logging.info(f'Setting ({row},{col}) to {cell_candidates[idx]} via backtracking')
+            board_solved[row, col] = cell_candidates[idx]
+            logging.info(board_solved)
+            backtracking.append((board_solved.copy(), row, col, cell_candidates, idx))
+            prev_zeros = 81 - np.count_nonzero(board_solved)
+            continue
 
         # *** BACKTRACK REVISITED ***
         new_zeros = 81 - np.count_nonzero(board_solved)
@@ -231,11 +288,11 @@ def solve(board: npt.NDArray[int]) -> Optional[npt.NDArray[int]]:
                         if board_candidates[r, c].size > 0]
             row, col, cell_candidates = min(nonempty, key=lambda x: x[2].size)
             logging.info(f'Setting ({row},{col}) to {cell_candidates[0]} via backtracking initiation')
+            logging.info(board_solved)
             board_solved[row, col] = cell_candidates[0]
             backtracking.append((board_solved.copy(), row, col, cell_candidates, 0))
             new_zeros -= 1
 
         prev_zeros = new_zeros
 
-    print(board_solved)
-    return None
+    return board_solved if prev_zeros == 0 else None
